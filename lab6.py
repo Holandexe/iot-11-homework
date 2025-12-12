@@ -1,6 +1,7 @@
 import os
 import logging
 from functools import wraps
+
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 
@@ -21,17 +22,17 @@ def logged(exception, mode="console"):
         def wrapper(*args, **kwargs):
             logger = logging.getLogger(func.__name__)
             logger.setLevel(logging.INFO)
-            logger.handlers = []
-            
-            if mode == "file":
-                handler = logging.FileHandler("operations.log", encoding='utf-8')
-            else:
-                handler = logging.StreamHandler()
-            
-            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-            
+
+            if not logger.handlers:
+                if mode == "file":
+                    handler = logging.FileHandler("operations.log", encoding='utf-8')
+                else:
+                    handler = logging.StreamHandler()
+
+                formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+                handler.setFormatter(formatter)
+                logger.addHandler(handler)
+
             try:
                 logger.info(f"Початок: {func.__name__}")
                 result = func(*args, **kwargs)
@@ -47,11 +48,12 @@ def logged(exception, mode="console"):
 class XMLFile:
     def __init__(self, filepath):
         self.filepath = filepath
-        if not os.path.exists(filepath):
-            raise FileNotFound(filepath)
-    
+
     @logged(FileCorrupted, mode="console")
     def read(self):
+        if not os.path.exists(self.filepath):
+            raise FileNotFound(self.filepath)
+            
         try:
             tree = ET.parse(self.filepath)
             return self._to_dict(tree.getroot())
@@ -59,7 +61,7 @@ class XMLFile:
             raise FileCorrupted(self.filepath, "Невірний XML")
         except PermissionError:
             raise FileCorrupted(self.filepath, "Немає доступу")
-    
+
     @logged(FileCorrupted, mode="file")
     def write(self, data):
         try:
@@ -70,9 +72,13 @@ class XMLFile:
                 f.write(xml_str)
         except PermissionError:
             raise FileCorrupted(self.filepath, "Немає доступу")
-    
+
     @logged(FileCorrupted, mode="file")
     def append(self, data):
+        if not os.path.exists(self.filepath):
+            self.write(data)
+            return
+
         try:
             tree = ET.parse(self.filepath)
             root = tree.getroot()
@@ -83,7 +89,7 @@ class XMLFile:
                 f.write(xml_str)
         except ET.ParseError:
             raise FileCorrupted(self.filepath, "Невірний XML")
-    
+
     def _to_dict(self, elem):
         result = {}
         if elem.text and elem.text.strip():
@@ -92,17 +98,17 @@ class XMLFile:
         for child in elem:
             data = self._to_dict(child)
             if child.tag in result:
-                if type(result[child.tag]) != list:
+                if not isinstance(result[child.tag], list):
                     result[child.tag] = [result[child.tag]]
                 result[child.tag].append(data)
             else:
                 result[child.tag] = data
         return result if result else None
-    
+
     def _from_dict(self, parent, data):
-        if type(data) == dict:
+        if isinstance(data, dict):
             for key, val in data.items():
-                if type(val) == list:
+                if isinstance(val, list):
                     for item in val:
                         child = ET.SubElement(parent, key)
                         self._from_dict(child, item)
@@ -116,37 +122,52 @@ class XMLFile:
 if __name__ == "__main__":
     filepath = "data.xml"
     
+    # Видаляємо старий файл, щоб тест завжди починався чисто
+    if os.path.exists(filepath):
+        os.remove(filepath)
+
+    # Ініціалізуємо файл, створюючи його вручну для початкового тесту
     root = ET.Element('data')
-    for name, grade in [('Іван', '5'), ('Марія', '4')]:
-        s = ET.SubElement(root, 'student')
-        ET.SubElement(s, 'name').text = name
-        ET.SubElement(s, 'grade').text = grade
-    
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(minidom.parseString(ET.tostring(root)).toprettyxml(indent="  "))
-    
-    print("Файл створено")
-    
+    s1 = ET.SubElement(root, 'student')
+    ET.SubElement(s1, 'name').text = 'Іван'
+    ET.SubElement(s1, 'grade').text = '5'
+    s2 = ET.SubElement(root, 'student')
+    ET.SubElement(s2, 'name').text = 'Марія'
+    ET.SubElement(s2, 'grade').text = '4'
+
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(minidom.parseString(ET.tostring(root)).toprettyxml(indent="  "))
+        print("Файл створено")
+    except Exception as e:
+        print(f"Помилка при створенні початкового файлу: {e}")
+        exit()
+
     try:
         handler = XMLFile(filepath)
         print("\nЧитання:")
         print(handler.read())
-        
-        print("\nЗапис:")
-        handler.write({'name': 'Петро', 'grade': '5'})
+
+        print("\nЗапис (повністю перезапише вміст):")
+        handler.write({'person': {'name': 'Петро', 'grade': '5'}})
         print(handler.read())
         
-        print("\nДописування:")
-        handler.append({'name': 'Ольга', 'grade': '4'})
+        print("\nДописування (додає елемент 'item' на кореневий рівень):")
+        handler.append({'item': {'product': 'Олівець', 'price': '10'}})
         print(handler.read())
-        
+
     except FileNotFound as e:
         print(f"Помилка: {e}")
     except FileCorrupted as e:
         print(f"Помилка: {e}")
-    
-    print("\nТест неіснуючого файлу:")
+        
+    print("\nТест неіснуючого файлу (очікується FileNotFound під час read):")
+    missing_handler = XMLFile("none.xml")
     try:
-        XMLFile("none.xml")
+        missing_handler.read() 
     except FileNotFound as e:
         print(f"Оброблено: {e}")
+
+    # Очищення
+    if os.path.exists(filepath):
+        os.remove(filepath)
