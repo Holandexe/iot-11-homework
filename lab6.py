@@ -75,14 +75,15 @@ class XMLFile:
 
     @logged(FileCorrupted, mode="file")
     def append(self, data):
+        # Перевірка: Якщо файл не існує, створюємо його за допомогою write
         if not os.path.exists(self.filepath):
             self.write(data)
             return
-
+            
         try:
             tree = ET.parse(self.filepath)
             root = tree.getroot()
-            item = ET.SubElement(root, "item")
+            item = ET.SubElement(root, "item") # Припускаємо, що додаємо як "item"
             self._from_dict(item, data)
             xml_str = minidom.parseString(ET.tostring(root)).toprettyxml(indent="  ")
             with open(self.filepath, 'w', encoding='utf-8') as f:
