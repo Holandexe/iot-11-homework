@@ -73,19 +73,29 @@ class XMLFile:
         except PermissionError:
             raise FileCorrupted(self.filepath, "Немає доступу")
 
-    @logged(FileCorrupted, mode="file")
+@logged(FileCorrupted, mode="file")
     def append(self, data):
-        # Перевірка: Якщо файл не існує, створюємо його за допомогою write
         if not os.path.exists(self.filepath):
-            self.write(data)
-            return
-            
+            try:
+                root = ET.Element("data")
+                tree = ET.ElementTree(root)
+                tree.write(self.filepath, encoding='utf-8', xml_declaration=True)
+                
+                self.append(data) 
+                return
+            except PermissionError:
+                raise FileCorrupted(self.filepath, "Немає доступу")
+
         try:
             tree = ET.parse(self.filepath)
             root = tree.getroot()
-            item = ET.SubElement(root, "item") # Припускаємо, що додаємо як "item"
+            
+            item = ET.SubElement(root, "item")
             self._from_dict(item, data)
+            
             xml_str = minidom.parseString(ET.tostring(root)).toprettyxml(indent="  ")
+            xml_str = '\n'.join([line for line in xml_str.split('\n') if line.strip()])
+            
             with open(self.filepath, 'w', encoding='utf-8') as f:
                 f.write(xml_str)
         except ET.ParseError:
