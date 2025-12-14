@@ -73,7 +73,7 @@ class XMLFile:
         except PermissionError:
             raise FileCorrupted(self.filepath, "Немає доступу")
 
-@logged(FileCorrupted, mode="file")
+    @logged(FileCorrupted, mode="file")
     def append(self, data):
         if not os.path.exists(self.filepath):
             try:
